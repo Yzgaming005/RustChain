@@ -297,18 +297,20 @@ DEFAULT_HEADERS = {
 }
 
 
-def _sanitize_csv_value(value: Any) -> Any:
-    """Neutralize spreadsheet formula injection in CSV cell values.
+_FORMULA_LEADING = frozenset(("=", "+", "-", "@"))
 
-    Only string cells are affected. When the first non-whitespace character is a
-    formula trigger (=, +, -, @) or the value leads with a tab or carriage
-    return, it is prefixed with a single quote so spreadsheet software treats it
-    as text. Non-string values and JSON/JSONL output are left untouched.
-    """
+
+def _sanitize_csv_value(value: Any) -> str:
+    """Neutralize spreadsheet formula-leading text values."""
     if not isinstance(value, str):
         return value
-    if value[:1] in ("\t", "\r") or value.lstrip()[:1] in ("=", "+", "-", "@"):
+    stripped = value.strip()
+    if stripped and stripped[0] in _FORMULA_LEADING:
         return "'" + value
+    # Also catch tab/control-prefixed variants
+    for ch in ("\t", "\r", "\n", "\x00", "\x1b"):
+        if ch in stripped:
+            return "'" + value
     return value
 
 
@@ -317,14 +319,13 @@ def write_csv(path: Path, rows: list[dict[str, Any]], default_headers: list[str]
         fieldnames = sorted({key for row in rows for key in row.keys()})
     else:
         fieldnames = sorted(default_headers) if default_headers else []
-    safe_rows = [
-        {key: _sanitize_csv_value(value) for key, value in row.items()} for row in rows
-    ]
+    # Sanitize formula-leading values
+    sanitized = [{k: _sanitize_csv_value(v) for k, v in row.items()} for row in rows]
     with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
         if fieldnames:
             writer.writeheader()
-        writer.writerows(safe_rows)
+        writer.writerows(sanitized)
 
 
 def write_json(path: Path, rows: list[dict[str, Any]]) -> None:
