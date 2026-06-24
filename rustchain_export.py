@@ -298,19 +298,32 @@ DEFAULT_HEADERS = {
 
 
 _FORMULA_LEADING = frozenset(("=", "+", "-", "@"))
+# Whitespace/control chars that some spreadsheet apps strip before evaluating a
+# cell. A leading whitespace + formula bypasses `_FORMULA_LEADING` checks that
+# only look at the very first character, so we treat these as formula-leading
+# too and trigger the `'` prefix. See PR review for issue #7224.
+_LEADING_NEUTRAL = frozenset(("\t", "\r", "\n", "\x00", "\x1b"))
 
 
 def _sanitize_csv_value(value: Any) -> str:
-    """Neutralize spreadsheet formula-leading text values."""
-    if not isinstance(value, str):
+    """Neutralize spreadsheet formula-leading text values.
+
+    A leading character in `_FORMULA_LEADING` (=, +, -, @) OR a leading
+    whitespace/control char from `_LEADING_NEUTRAL` (TAB, CR, LF, NUL, ESC)
+    triggers the single-quote prefix. The prefix is placed *immediately*
+    before the formula-leading char so it cannot be separated from the
+    formula by intervening whitespace — see issue #7224 review.
+    """
+    if not isinstance(value, str) or not value:
         return value
-    stripped = value.strip()
-    if stripped and stripped[0] in _FORMULA_LEADING:
-        return "'" + value
-    # Also catch tab/control-prefixed variants
-    for ch in ("\t", "\r", "\n", "\x00", "\x1b"):
-        if ch in stripped:
-            return "'" + value
+    # Find the first non-whitespace, non-control char.
+    i = 0
+    while i < len(value) and value[i] in _LEADING_NEUTRAL:
+        i += 1
+    if i < len(value) and value[i] in _FORMULA_LEADING:
+        # Insert `'` immediately before the formula char (after any leading
+        # neutral whitespace, which we keep intact).
+        return value[:i] + "'" + value[i:]
     return value
 
 

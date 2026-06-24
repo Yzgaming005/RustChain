@@ -156,6 +156,7 @@ class RustChainExportTests(unittest.TestCase):
         self.assertEqual(exporter.balance_amount_rtc({"balance_urtc": 999_999}), 0.999999)
         self.assertEqual(exporter.balance_amount_rtc({"balance_rtc": 0.5}), 0.5)
 
+<<<<<<< HEAD
     def test_csv_export_neutralizes_formula_injection(self):
         rows = [
             {
@@ -192,6 +193,35 @@ class RustChainExportTests(unittest.TestCase):
             loaded = json.loads(json_path.read_text(encoding="utf-8"))
             self.assertEqual(loaded[0]["miner_id"], "=cmd|'/c calc'!A0")
             self.assertEqual(loaded[0]["device_arch"], "+SUM(A1:A2)")
+=======
+    def test_sanitize_csv_value_prefixes_leading_whitespace_then_formula(self):
+        # Issue #7224 review: leading whitespace/control chars must also
+        # trigger the `'` prefix, and the prefix must be inserted immediately
+        # before the formula char (NOT before the whitespace).
+        s = exporter._sanitize_csv_value
+        # Plain formula-leading chars
+        self.assertEqual(s("=SUM(A1:A10)"), "'=SUM(A1:A10)")
+        self.assertEqual(s("+1+2"), "'+1+2")
+        self.assertEqual(s("-1+2"), "'-1+2")
+        self.assertEqual(s("@SUM(A1)"), "'@SUM(A1)")
+        # Leading whitespace/control + formula — the gap from #7224 review
+        self.assertEqual(s("\t=cmd"), "\t'=cmd")
+        self.assertEqual(s("\r=cmd"), "\r'=cmd")
+        self.assertEqual(s("\n=cmd()|'/c calc'!A0"), "\n'=cmd()|'/c calc'!A0")
+        self.assertEqual(s("\t\r\n=cmd"), "\t\r\n'=cmd")
+        self.assertEqual(s("\x00=cmd"), "\x00'=cmd")
+        # Safe values pass through
+        self.assertEqual(s("normal"), "normal")
+        self.assertEqual(s(""), "")
+        self.assertEqual(s("123"), "123")
+        # Internal newline is not leading → no prefix (preserves cell value)
+        self.assertEqual(s("safe\ntext"), "safe\ntext")
+        # Plain ASCII space is NOT a neutral-leading char (per spec)
+        self.assertEqual(s("  =cmd"), "  =cmd")
+        # Non-strings pass through
+        self.assertEqual(s(None), None)
+        self.assertEqual(s(42), 42)
+>>>>>>> f706be6 (fix(#7224): prefix leading whitespace/control chars to close formula-injection gap)
 
 
 if __name__ == "__main__":
